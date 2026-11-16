@@ -40,7 +40,7 @@ const WORLD=360,botColors=['#9c6844','#4e6650','#59647e','#a28a54','#59605d'];
 function pbr(name,color,rough=.8,metal=0){let m=new B.PBRMaterial(name,scene);m.albedoColor=B.Color3.FromHexString(color);m.roughness=rough;m.metallic=metal;return m}
 function makeMat(name,color,rough=.8,metal=0){return pbr(name,color,rough,metal)}
 function box(name,w,h,d,x,y,z,mat,shadow=true){let m=B.MeshBuilder.CreateBox(name,{width:w,height:h,depth:d},scene);m.position.set(x,y,z);m.material=mat;if(shadow)shadowGen.addShadowCaster(m);m.receiveShadows=true;return m}
-let shadowGen;
+let shadowGen, wood, wall, roof, glass, doorMat, foliage;
 function makeSoldier(name,color,enemy=false){
  let root=new B.TransformNode(name,scene),cloth=makeMat(name+'cloth',color,.82),vest=makeMat(name+'vest','#26353b',.9),pants=makeMat(name+'pants','#202a2d',.95),skin=makeMat(name+'skin','#a87555',.9),black=makeMat(name+'black','#11191d',.45,.3);
  let torso=B.MeshBuilder.CreateCapsule(name+'torso',{height:1.12,radius:.34,tessellation:12},scene);torso.parent=root;torso.position.y=1.48;torso.material=cloth;shadowGen.addShadowCaster(torso);
@@ -76,7 +76,7 @@ function setup(){
  const hemi=new B.HemisphericLight('sky light',new B.Vector3(0,1,0),scene);hemi.intensity=.75;hemi.groundColor=new B.Color3(.25,.29,.24);
  let sun=new B.DirectionalLight('sun',new B.Vector3(-.5,-1,.35),scene);sun.position=new B.Vector3(90,150,-80);sun.intensity=3.0;
  shadowGen=new B.ShadowGenerator(1024,sun);shadowGen.useBlurExponentialShadowMap=true;shadowGen.blurKernel=16;shadowGen.bias=.0005;
- const groundMat=makeMat('island grass','#536d43',1),sandMat=makeMat('sand','#8e8568',1),roadMat=makeMat('asphalt','#303b3d',.96),wood=makeMat('bark','#503c2b'),wall=makeMat('concrete','#a29d8c'),roof=makeMat('roof','#41494b'),glass=makeMat('glass','#466b75',.22,.35),doorMat=makeMat('door','#594536'),foliage=['#244a30','#2c5a38','#355f3d'].map((c,i)=>makeMat('pine'+i,c,1));
+ const groundMat=makeMat('island grass','#536d43',1),sandMat=makeMat('sand','#8e8568',1),roadMat=makeMat('asphalt','#303b3d',.96);wood=makeMat('bark','#503c2b');wall=makeMat('concrete','#a29d8c');roof=makeMat('roof','#41494b');glass=makeMat('glass','#466b75',.22,.35);doorMat=makeMat('door','#594536');foliage=['#244a30','#2c5a38','#355f3d'].map((c,i)=>makeMat('pine'+i,c,1));
  const ground=B.MeshBuilder.CreateGround('terrain',{width:WORLD*2,height:WORLD*2,subdivisions:90},scene);ground.material=groundMat;ground.receiveShadows=true;
  // subtle ground variation via scattered grass tufts
  for(let i=0;i<500;i++){let x=(Math.random()-.5)*WORLD*2,z=(Math.random()-.5)*WORLD*2;if(Math.abs(x)<10||Math.abs(z+35)<9)continue;let tuft=B.MeshBuilder.CreateBox('grass detail',{width:.07+Math.random()*.08,height:.2+Math.random()*.35,depth:.07},scene);tuft.position.set(x,tuft.scaling.y,z);tuft.material=foliage[i%3];tuft.rotation.z=(Math.random()-.5)*.3}
