@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>LAST SURVIVOR MAX — Battle Royale</title>
+<style>
+:root{--cyan:#42eaff;--glass:rgba(7,17,28,.76);--stroke:rgba(111,220,255,.34)}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#09131d;color:#fff;font-family:Inter,Arial,sans-serif}#renderCanvas{width:100%;height:100%;display:block;touch-action:none;outline:none}
+#screen{position:fixed;inset:0;display:grid;place-items:center;background:radial-gradient(ellipse at 55% 45%,#1b4050 0,#0b1b29 54%,#050b12 100%);z-index:8}
+.panel{width:min(92vw,560px);padding:36px;border:1px solid var(--stroke);border-radius:18px;background:linear-gradient(145deg,rgba(8,22,34,.96),rgba(3,10,18,.94));box-shadow:0 22px 90px #000b;text-align:center}
+.logo{font-size:clamp(32px,6vw,58px);font-weight:1000;letter-spacing:2px;line-height:1;color:#4beaff;text-shadow:0 0 32px #16cfff66;margin:0 0 12px}
+.tag{color:#bdd0dc;line-height:1.6;margin:0 auto 24px;max-width:440px}
+button{border:0;border-radius:8px;padding:15px 34px;font-weight:900;letter-spacing:1.5px;background:linear-gradient(110deg,#54f0ff,#1598e8);color:#03131d;cursor:pointer;box-shadow:0 8px 30px #00cfff55}
+button:hover{filter:brightness(1.12);transform:translateY(-1px)}.note{font-size:12px;line-height:1.8;color:#89a8b9;margin-top:18px}
+#hud{display:none;position:fixed;inset:0;pointer-events:none;z-index:3;text-shadow:0 2px 5px #000}
+.top{position:absolute;top:16px;left:16px;right:16px;display:flex;justify-content:space-between;gap:10px}.chip{padding:10px 14px;background:var(--glass);border:1px solid var(--stroke);border-radius:9px;font-weight:800;backdrop-filter:blur(8px)}
+#reticle{position:absolute;left:50%;top:50%;width:22px;height:22px;transform:translate(-50%,-50%)}#reticle:before,#reticle:after{content:"";position:absolute;background:#e9fdff;box-shadow:0 0 8px #35eaff}#reticle:before{width:2px;height:22px;left:10px}#reticle:after{height:2px;width:22px;top:10px}
+#bottom{position:absolute;bottom:20px;left:20px;right:20px;display:flex;justify-content:space-between;align-items:end}.stat{background:var(--glass);border:1px solid var(--stroke);border-radius:10px;padding:12px 15px;min-width:190px}.bar{height:9px;background:#542b35;border-radius:9px;overflow:hidden;margin-top:8px}.bar i{display:block;width:100%;height:100%;background:linear-gradient(90deg,#ff435c,#ffbd61)}
+#ammo{font-size:28px;font-weight:1000;text-align:right}.small{font-size:10px;letter-spacing:2px;color:#b7d1df}
+#map{position:absolute;right:18px;top:78px;width:150px;height:150px;border:2px solid #b9efff99;border-radius:50%;background:#0b2224cc}
+#toast{position:absolute;top:23%;left:50%;transform:translateX(-50%);font-size:22px;font-weight:1000;letter-spacing:2px}
+#help{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);font-size:10px;letter-spacing:1px;background:#06121dcc;padding:8px 12px;border-radius:7px;white-space:nowrap}
+.hidden{display:none!important}@media(max-width:650px){#map{width:105px;height:105px;top:75px}.chip{font-size:11px;padding:8px}.stat{min-width:145px}.panel{padding:25px 18px}#help{white-space:normal;width:90%;text-align:center}}
+</style>
+</head>
+<body>
+<canvas id="renderCanvas"></canvas>
+<div id="screen"><div class="panel"><h1 class="logo">LAST SURVIVOR<br>MAX</h1><p class="tag">A cinematic 3D battle-royale prototype. Explore the island, fight enemy combatants and survive the closing zone.</p><button id="play">DEPLOY TO ISLAND</button><div class="note">WASD move · Mouse aim · Left click fire · R reload · Shift sprint · Space jump · Esc pause<br>Desktop browser recommended. 3D engine and game world load directly in your browser.</div></div></div>
+<div id="hud"><div class="top"><div class="chip">SURVIVORS <span id="alive">13</span></div><div class="chip">SAFE ZONE <span id="zone">100%</span></div><div class="chip">ELIMINATIONS <span id="kills">0</span></div></div><canvas id="map" width="200" height="200"></canvas><div id="reticle"></div><div id="toast"></div><div id="bottom"><div class="stat"><b>HEALTH <span id="hp">100</span></b><div class="bar"><i id="hpbar"></i></div></div><div id="ammo"><span id="mag">30</span> / <span id="reserve">120</span><div class="small">ASSAULT RIFLE</div></div></div><div id="help">WASD MOVE · MOUSE AIM · CLICK FIRE · SHIFT SPRINT · SPACE JUMP · R RELOAD</div></div>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script>
+(()=>{
+'use strict';
+const canvas=document.getElementById('renderCanvas'),$=id=>document.getElementById(id);
+if(!window.BABYLON){$('screen').innerHTML='<div class="panel"><h1 class="logo">ENGINE LOAD ERROR</h1><p class="tag">Babylon.js could not load. Check your internet connection and refresh.</p></div>';return}
+const B= BABYLON, engine=new B.Engine(canvas,true,{preserveDrawingBuffer:false,stencil:true,antialias:true,powerPreference:'high-performance'});
+engine.setHardwareScalingLevel(Math.max(1,window.devicePixelRatio>1?1.25:1));
+let scene,camera,player,playerRoot,gun,keys={},bots=[],shots=[],started=false,paused=false,health=100,kills=0,mag=30,reserve=120,reload=0,fireCooldown=0,elapsed=0,zoneRadius=145,zoneElapsed=0,playerYaw=0,pitch=.06,vy=0,onGround=true;
+const WORLD=360,botColors=['#9c6844','#4e6650','#59647e','#a28a54','#59605d'];
+function pbr(name,color,rough=.8,metal=0){let m=new B.PBRMaterial(name,scene);m.albedoColor=B.Color3.FromHexString(color);m.roughness=rough;m.metallic=metal;return m}
+function makeMat(name,color,rough=.8,metal=0){return pbr(name,color,rough,metal)}
+function box(name,w,h,d,x,y,z,mat,shadow=true){let m=B.MeshBuilder.CreateBox(name,{width:w,height:h,depth:d},scene);m.position.set(x,y,z);m.material=mat;if(shadow)shadowGen.addShadowCaster(m);m.receiveShadows=true;return m}
+let shadowGen;
+function makeSoldier(name,color,enemy=false){
+ let root=new B.TransformNode(name,scene),cloth=makeMat(name+'cloth',color,.82),vest=makeMat(name+'vest','#26353b',.9),pants=makeMat(name+'pants','#202a2d',.95),skin=makeMat(name+'skin','#a87555',.9),black=makeMat(name+'black','#11191d',.45,.3);
+ let torso=B.MeshBuilder.CreateCapsule(name+'torso',{height:1.12,radius:.34,tessellation:12},scene);torso.parent=root;torso.position.y=1.48;torso.material=cloth;shadowGen.addShadowCaster(torso);
+ let chest=B.MeshBuilder.CreateBox(name+'vest',{width:.7,height:.66,depth:.42},scene);chest.parent=root;chest.position.set(0,1.5,-.015);chest.material=vest;shadowGen.addShadowCaster(chest);
+ let head=B.MeshBuilder.CreateSphere(name+'head',{diameter:.43,segments:16},scene);head.parent=root;head.position.y=2.25;head.material=skin;shadowGen.addShadowCaster(head);
+ let helmet=B.MeshBuilder.CreateSphere(name+'helmet',{diameter:.49,segments:16,slice:0.48},scene);helmet.parent=root;helmet.position.y=2.39;helmet.material=black;shadowGen.addShadowCaster(helmet);
+ let limbs=[];
+ for(let s of [-1,1]){
+  let leg=B.MeshBuilder.CreateCapsule(name+'leg',{height:.92,radius:.15,tessellation:10},scene);leg.parent=root;leg.position.set(s*.19,.55,0);leg.material=pants;shadowGen.addShadowCaster(leg);limbs.push(leg);
+  let arm=B.MeshBuilder.CreateCapsule(name+'arm',{height:.8,radius:.12,tessellation:10},scene);arm.parent=root;arm.position.set(s*.47,1.55,-.05);arm.rotation.z=s*.13;arm.material=cloth;shadowGen.addShadowCaster(arm);limbs.push(arm);
+  let boot=B.MeshBuilder.CreateBox(name+'boot',{width:.28,height:.18,depth:.42},scene);boot.parent=root;boot.position.set(s*.19,.12,-.07);boot.material=black;
+ }
+ let pack=B.MeshBuilder.CreateBox(name+'pack',{width:.47,height:.58,depth:.22},scene);pack.parent=root;pack.position.set(0,1.55,.28);pack.material=vest;
+ let rifle=new B.TransformNode(name+'rifle',scene);rifle.parent=root;rifle.position.set(.42,1.45,-.45);
+ let body=B.MeshBuilder.CreateBox(name+'riflebody',{width:.16,height:.17,depth:.82},scene);body.parent=rifle;body.material=black;
+ let barrel=B.MeshBuilder.CreateCylinder(name+'barrel',{height:.72,diameter:.055,tessellation:10},scene);barrel.parent=rifle;barrel.rotation.x=Math.PI/2;barrel.position.z=-.65;barrel.material=makeMat(name+'steel','#333d43',.28,.8);
+ let stock=B.MeshBuilder.CreateBox(name+'stock',{width:.14,height:.13,depth:.32},scene);stock.parent=rifle;stock.position.z=.48;stock.material=black;
+ return {root,rifle,limbs,alive:true,hp:100,ai:Math.random()*2,shot:Math.random()*2,phase:Math.random()*6};
+}
+function makeTree(x,z,s=1){
+ let trunk=B.MeshBuilder.CreateCylinder('tree trunk',{height:3.2*s,diameterTop:.25*s,diameterBottom:.48*s,tessellation:8},scene);trunk.position.set(x,1.6*s,z);trunk.material=wood;shadowGen.addShadowCaster(trunk);
+ for(let j=0;j<3;j++){let crown=B.MeshBuilder.CreateSphere('pine crown',{diameter:3.4*s-j*.55*s,segments:8},scene);crown.scaling.y=1.1;crown.position.set(x,(3.0+j*.8)*s,z);crown.material=foliage[j%foliage.length];shadowGen.addShadowCaster(crown)}
+}
+function building(x,z,w=12,d=10,h=7){
+ let base=box('building',w,h,d,x,h/2,z,wall);box('roof',w+.5,.45,d+.5,x,h+.2,z,roof);
+ for(let side of [-1,1])for(let row=0;row<2;row++){let win=box('window',1.35,1.45,.09,x+side*w*.27,2.5+row*2.5,z-d/2-.055,glass,false);win.material=glass}
+ box('door',1.45,2.7,.12,x,.0+1.35,z-d/2-.08,doorMat,false);
+ box('awning',2.4,.18,.8,x,3.1,z-d/2-.4,roof,false);
+}
+function setup(){
+ scene=new B.Scene(engine);scene.clearColor=new B.Color4(.56,.72,.79,1);scene.fogMode=B.Scene.FOGMODE_EXP2;scene.fogDensity=.0018;scene.fogColor=new B.Color3(.56,.72,.79);
+ scene.imageProcessingConfiguration.toneMappingEnabled=true;scene.imageProcessingConfiguration.toneMappingType=B.ImageProcessingConfiguration.TONEMAPPING_ACES;scene.imageProcessingConfiguration.exposure=1.15;scene.imageProcessingConfiguration.contrast=1.15;
+ const hemi=new B.HemisphericLight('sky light',new B.Vector3(0,1,0),scene);hemi.intensity=.75;hemi.groundColor=new B.Color3(.25,.29,.24);
+ let sun=new B.DirectionalLight('sun',new B.Vector3(-.5,-1,.35),scene);sun.position=new B.Vector3(90,150,-80);sun.intensity=3.0;
+ shadowGen=new B.ShadowGenerator(1024,sun);shadowGen.useBlurExponentialShadowMap=true;shadowGen.blurKernel=16;shadowGen.bias=.0005;
+ const groundMat=makeMat('island grass','#536d43',1),sandMat=makeMat('sand','#8e8568',1),roadMat=makeMat('asphalt','#303b3d',.96),wood=makeMat('bark','#503c2b'),wall=makeMat('concrete','#a29d8c'),roof=makeMat('roof','#41494b'),glass=makeMat('glass','#466b75',.22,.35),doorMat=makeMat('door','#594536'),foliage=['#244a30','#2c5a38','#355f3d'].map((c,i)=>makeMat('pine'+i,c,1));
+ const ground=B.MeshBuilder.CreateGround('terrain',{width:WORLD*2,height:WORLD*2,subdivisions:90},scene);ground.material=groundMat;ground.receiveShadows=true;
+ // subtle ground variation via scattered grass tufts
+ for(let i=0;i<500;i++){let x=(Math.random()-.5)*WORLD*2,z=(Math.random()-.5)*WORLD*2;if(Math.abs(x)<10||Math.abs(z+35)<9)continue;let tuft=B.MeshBuilder.CreateBox('grass detail',{width:.07+Math.random()*.08,height:.2+Math.random()*.35,depth:.07},scene);tuft.position.set(x,tuft.scaling.y,z);tuft.material=foliage[i%3];tuft.rotation.z=(Math.random()-.5)*.3}
+ // roads and intersections
+ box('main road',18,.12,650,5,.06,0,roadMat,false);box('cross road',650,.12,15,0,.065,-35,roadMat,false);
+ for(let i=0;i<10;i++){let x=(i-4.5)*36,z=(i%2?55:-95);building(x,z,11+Math.random()*5,10+Math.random()*4,6+Math.random()*3)}
+ for(let i=0;i<260;i++){let x=(Math.random()-.5)*650,z=(Math.random()-.5)*650;if(Math.abs(x)<18||Math.abs(z+35)<14)continue;makeTree(x,z,.65+Math.random()*.7)}
+ const rockMat=makeMat('rock','#727b77');for(let i=0;i<110;i++){let r=B.MeshBuilder.CreateIcoSphere('boulder',{radius:.7+Math.random()*1.7,subdivisions:1},scene);r.position.set((Math.random()-.5)*620,.45,(Math.random()-.5)*620);r.scaling.y=.5+Math.random()*.5;r.material=rockMat;shadowGen.addShadowCaster(r)}
+ // distant ridges
+ const mountain=makeMat('distant mountain','#71888a');for(let i=0;i<36;i++){let a=i/36*Math.PI*2,r=320;let m=B.MeshBuilder.CreateCylinder('mountain',{diameterTop:0,diameterBottom:30+Math.random()*28,height:45+Math.random()*60,tessellation:6},scene);m.position.set(Math.cos(a)*r,20,Math.sin(a)*r);m.material=mountain}
+ // sunlit clouds
+ const cloudMat=makeMat('cloud','#f1f5ee',1);cloudMat.alpha=.72;for(let i=0;i<20;i++){let cl=new B.TransformNode('cloud',scene);let x=(Math.random()-.5)*500,z=(Math.random()-.5)*500;for(let j=0;j<5;j++){let puff=B.MeshBuilder.CreateSphere('cloud puff',{diameter:10+Math.random()*8,segments:8},scene);puff.parent=cl;puff.position.set(j*5,Math.random()*3,Math.random()*3);puff.material=cloudMat}cl.position.set(x,65+Math.random()*25,z)}
+ // safe-zone circle
+ let ring=B.MeshBuilder.CreateTorus('zone',{diameter:zoneRadius*2,thickness:.65,tessellation:160},scene);ring.rotation.x=Math.PI/2;ring.position.y=.25;ring.material=new B.StandardMaterial('zone glow',scene);ring.material.emissiveColor=new B.Color3(.05,.65,1);ring.material.alpha=.75;ring.name='zoneRing';
+ camera=new B.UniversalCamera('follow camera',new B.Vector3(0,5,-10),scene);camera.minZ=.1;camera.fov=.88;camera.inputs.clear();
+ player=makeSoldier('player','#285e7c');playerRoot=player.root;playerRoot.position.set(0,0,14);
+ for(let i=0;i<12;i++){let a=Math.random()*Math.PI*2,r=55+Math.random()*105;let b=makeSoldier('opponent'+i,botColors[i%botColors.length]);b.root.position.set(Math.cos(a)*r,0,Math.sin(a)*r);b.speed=2.1+Math.random()*1.3;b.alive=true;bots.push(b)}
+}
+function notify(t){$('toast').textContent=t;clearTimeout(notify.timer);$('toast').style.opacity=1;notify.timer=setTimeout(()=>$('toast').style.opacity=0,1500)}
+function deploy(){started=true;paused=false;$('screen').classList.add('hidden');$('hud').style.display='block';canvas.requestPointerLock?.();engine.runRenderLoop(render)}
+function reloadGun(){if(reload||mag===30||reserve<=0)return;reload=1.4;notify('RELOADING')}
+function fire(){if(!started||paused||!document.pointerLockElement||reload>0||fireCooldown>0)return;if(mag<=0){reloadGun();return}mag--;fireCooldown=.13;$('mag').textContent=mag;let origin=camera.position.clone(),dir=camera.getForwardRay(180).direction.normalize();let best=null,bestD=180;
+ for(let b of bots){if(!b.alive)continue;let center=b.root.position.add(new B.Vector3(0,1.3,0));let to=center.subtract(origin),along=B.Vector3.Dot(to,dir);if(along<0||along>bestD)continue;let closest=origin.add(dir.scale(along));if(B.Vector3.Distance(closest,center)<1.05){best=b;bestD=along}}
+ if(best){best.hp-=38;if(best.hp<=0){best.alive=false;best.root.dispose();kills++;$('kills').textContent=kills;notify('TARGET ELIMINATED')}}
+}
+function hurt(n){health=Math.max(0,health-n);$('hp').textContent=Math.ceil(health);$('hpbar').style.width=health+'%';if(health<=0)end(false)}
+function end(win){started=false;engine.stopRenderLoop(render);document.exitPointerLock?.();$('hud').style.display='none';$('screen').classList.remove('hidden');$('screen').innerHTML='<div class="panel"><h1 class="logo">'+(win?'BOOYAH!':'ELIMINATED')+'</h1><p class="tag">Eliminations: '+kills+' · Survival: '+Math.floor(elapsed)+' seconds</p><button onclick="location.reload()">PLAY AGAIN</button></div>'}
+function move(dt){
+ if(!started||paused)return;elapsed+=dt;fireCooldown=Math.max(0,fireCooldown-dt);
+ let f=new B.Vector3(Math.sin(playerYaw),0,Math.cos(playerYaw)),r=new B.Vector3(Math.cos(playerYaw),0,-Math.sin(playerYaw)),v=B.Vector3.Zero();
+ if(keys.KeyW)v.addInPlace(f);if(keys.KeyS)v.subtractInPlace(f);if(keys.KeyD)v.addInPlace(r);if(keys.KeyA)v.subtractInPlace(r);
+ if(v.lengthSquared()>0){v.normalize().scaleInPlace((keys.ShiftLeft?10:6)*dt);playerRoot.position.addInPlace(v);playerRoot.rotation.y=playerYaw}
+ if(keys.Space&&onGround){vy=7;onGround=false}vy-=19*dt;playerRoot.position.y+=vy*dt;if(playerRoot.position.y<0){playerRoot.position.y=0;vy=0;onGround=true}
+ playerRoot.position.x=B.Scalar.Clamp(playerRoot.position.x,-WORLD+8,WORLD-8);playerRoot.position.z=B.Scalar.Clamp(playerRoot.position.z,-WORLD+8,WORLD-8);
+ let target=playerRoot.position.add(new B.Vector3(0,1.7,0)),back=new B.Vector3(-Math.sin(playerYaw)*7,3.2,-Math.cos(playerYaw)*7);camera.position=target.add(back);let look=target.add(new B.Vector3(Math.sin(playerYaw)*18,pitch*7,Math.cos(playerYaw)*18));camera.setTarget(look);
+ for(let b of bots){if(!b.alive)continue;let p=b.root.position,dx=playerRoot.position.x-p.x,dz=playerRoot.position.z-p.z,dist=Math.hypot(dx,dz);b.ai-=dt;b.shot-=dt;if(b.ai<=0){b.ai=1.1+Math.random()*1.6;b.wander=Math.random()*6.28}
+ if(dist>13){p.x+=dx/Math.max(dist,.01)*b.speed*dt;p.z+=dz/Math.max(dist,.01)*b.speed*dt}else if(dist<7){p.x-=dx/Math.max(dist,.01)*b.speed*.6*dt;p.z-=dz/Math.max(dist,.01)*b.speed*.6*dt}
+ b.root.rotation.y=Math.atan2(dx,dz);b.phase+=dt*7;for(let limb of b.limbs)limb.rotation.x=dist>7?Math.sin(b.phase)*.45:0;
+ if(dist<65&&b.shot<=0){b.shot=1.25+Math.random()*1.4;if(Math.random()<.33)hurt(4+Math.random()*5)}
+ if(Math.hypot(p.x,p.z)>zoneRadius){b.hp-=dt*9;if(b.hp<=0){b.alive=false;b.root.dispose()}}
+ }
+ zoneElapsed+=dt;if(zoneElapsed>10)zoneRadius=Math.max(25,zoneRadius-dt*.62);
+ let ring=scene.getMeshByName('zoneRing');if(ring){ring.scaling.set(zoneRadius/145,zoneRadius/145,1)}
+ if(Math.hypot(playerRoot.position.x,playerRoot.position.z)>zoneRadius)hurt(dt*5);
+ let alive=bots.filter(b=>b.alive).length+1;$('alive').textContent=alive;$('zone').textContent=Math.round(zoneRadius/145*100)+'%';if(alive===1)end(true);
+ if(reload>0){reload-=dt;if(reload<=0){let n=Math.min(30-mag,reserve);mag+=n;reserve-=n;$('mag').textContent=mag;$('reserve').textContent=reserve}}
+ drawMap();
+}
+function drawMap(){let c=$('map'),ctx=c.getContext('2d'),w=c.width;ctx.clearRect(0,0,w,w);ctx.fillStyle='#18352b';ctx.fillRect(0,0,w,w);ctx.strokeStyle='#496c5b';ctx.lineWidth=1;for(let i=0;i<10;i++){ctx.beginPath();ctx.moveTo(i*w/10,0);ctx.lineTo(i*w/10,w);ctx.stroke();ctx.beginPath();ctx.moveTo(0,i*w/10);ctx.lineTo(w,i*w/10);ctx.stroke()}ctx.strokeStyle='#35ddff';ctx.lineWidth=3;ctx.beginPath();ctx.arc(w/2,w/2,zoneRadius/360*w,0,7);ctx.stroke();let px=w/2+playerRoot.position.x/360*w/2,pz=w/2+playerRoot.position.z/360*w/2;ctx.fillStyle='white';ctx.beginPath();ctx.arc(px,pz,5,0,7);ctx.fill();ctx.fillStyle='#ff5a64';for(let b of bots)if(b.alive){ctx.beginPath();ctx.arc(w/2+b.root.position.x/360*w/2,w/2+b.root.position.z/360*w/2,3.5,0,7);ctx.fill()}}
+function render(){let dt=Math.min(engine.getDeltaTime()/1000,.04);move(dt);scene.render()}
+window.addEventListener('keydown',e=>{keys[e.code]=true;if(e.code==='KeyR')reloadGun();if(e.code==='Escape'&&started&&document.pointerLockElement!==canvas){paused=true;notify('PAUSED — CLICK TO RESUME')}});
+window.addEventListener('keyup',e=>keys[e.code]=false);
+canvas.addEventListener('mousemove',e=>{if(document.pointerLockElement===canvas){playerYaw+=e.movementX*.0022;pitch=B.Scalar.Clamp(pitch-e.movementY*.0015,-.45,.4)}});
+canvas.addEventListener('mousedown',e=>{if(e.button===0)fire()});
+document.addEventListener('pointerlockchange',()=>{if(started&&document.pointerLockElement!==canvas)paused=true;else if(started)paused=false});
+$('play').onclick=deploy;
+window.addEventListener('resize',()=>engine.resize());
+try{setup();$('screen').querySelector('.tag').textContent='Island ready. Deploy, collect the fight and survive the closing zone.';}catch(e){console.error(e);$('screen').innerHTML='<div class="panel"><h1 class="logo">STARTUP ERROR</h1><p class="tag">'+e.message+'</p></div>'}
+})();
+</script>
+</body></html>
